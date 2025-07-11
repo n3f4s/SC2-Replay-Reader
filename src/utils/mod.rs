@@ -61,14 +61,14 @@ pub fn jump_to_offset(offset: usize, max_size: usize, current_size: usize, data:
 pub fn pack_u8_vec(data: &[u8]) -> Vec<u64> {
     // FIXME: reserve size
     let mut res = Vec::new();
-    let mut buffer = [0; 8];
+    let mut buffer = [0; 4];
     let mut i = 0;
     for d in data {
         buffer[i] = *d;
-        if i == 7 {
+        if i == 3 {
             i = 0;
-            res.push(u64::from_le_bytes(buffer));
-            buffer = [0; 8];
+            res.push(u32::from_le_bytes(buffer) as u64);
+            buffer = [0; 4];
         } else {
             i += 1;
         }
@@ -82,11 +82,11 @@ pub fn unpack_u64_vec(data: &[u64]) -> Vec<u8> {
     let mut res = Vec::new();
     let mask: u64 = (1 << 8) - 1;
     for d in data {
-        for i in 0..8 {
+        for i in 0..4 {
             let mask = mask << 8*i;
             let v = (d & mask) >> 8*i;
             res.push(v.try_into().unwrap());
         }
     }
-    return res
+    res
 }
