@@ -39,7 +39,7 @@ impl CryptTable {
 
         let mut seed1: u128 = key as u128;
         let mut seed2: u128 = 0xEEEEEEEE;
-        let mask: u128 = (1 << 64) - 1;
+        let mask: u128 = 0xFFFFFFFF; // (1 << 64) - 1;
 
         for (i, d) in buffer.iter().enumerate() {
             seed2 += self.dw_crypt_table[0x400usize + ((seed1 as usize) & 0xFFusize)] as u128;
@@ -80,8 +80,8 @@ impl CryptTable {
         for c in string.to_uppercase().chars() {
             let c: u64 = c.into();
             let value = self.dw_crypt_table[((hashtype << 8) + c) as usize];
-            seed1 = value ^ seed1.wrapping_add(seed2);
-            seed2 = c.wrapping_add(seed1).wrapping_add(seed2).wrapping_add(seed2 << 5).wrapping_add(3);
+            seed1 = (value ^ seed1.wrapping_add(seed2)) & 0xFFFFFFFF ;
+            seed2 = c.wrapping_add(seed1).wrapping_add(seed2).wrapping_add(seed2 << 5).wrapping_add(3) & 0xFFFFFFFF;
         }
         seed1
     }
