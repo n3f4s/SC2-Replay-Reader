@@ -41,13 +41,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
     // let parsed_blocktable = parse_packed_blocktable(&blocktable);
     let unpacked_blocktable = unpack_u64_vec(&blocktable);
     let ( data, parsed_blocktable ) = parse_blocktable(&unpacked_blocktable, mpqheader.blocktable_entries as usize).unwrap();
+    println!("offset\tblock size\tfile size\tflags");
     for block in parsed_blocktable {
-        println!("{{");
-        println!("\t\"block offset\": {:#x},", block.block_offset);
-        println!("\t\"block size\":   {},", block.block_size);
-        println!("\t\"file_size\":    {},", block.file_size);
-        println!("\t\"flags\":        {:#x}", block.flags);
-        println!("}}");
+        println!("{:#x}\t{}\t{}\t{:x}", block.block_offset, block.block_size, block.file_size, block.flags);
     }
     Ok(())
 }
