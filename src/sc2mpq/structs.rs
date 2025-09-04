@@ -1,9 +1,9 @@
 
 use std::fmt;
 use std::collections::HashMap;
-use std::iter::{Map, zip};
+use std::iter::{zip};
 
-use encoding::{ all::ISO_8859_1, all::WINDOWS_1252, DecoderTrap, Encoding };
+// use encoding::{ all::ISO_8859_1, all::WINDOWS_1252, DecoderTrap, Encoding };
 use num_bigint::{ BigUint, ToBigUint };
 
 #[derive(Debug)]
@@ -17,6 +17,7 @@ pub enum DataType {
 }
 
 impl DataType {
+    #[allow(dead_code)]
     pub fn bytestring(s: String) -> DataType { DataType::ByteString(s) }
     pub fn array_object(v: Vec<Box<DataType>>) -> DataType { DataType::ArrayObject(v) }
     pub fn singlebyte_int(i: u8) -> DataType {
@@ -36,14 +37,14 @@ impl DataType {
         DataType::FourBytesInteger(v)
     }
     pub fn vlf_int(v: Vec<u8>) -> DataType {
-        /**
+        /*
         Repack the bytes in order to have 8 bits bytes instead
         of 7 bits + continuation bit of the serialized data
         */
         let mut a = v[0].to_biguint().unwrap();
-        for i in 1..v.len() {
+        for k in v {
             a <<= 7;
-            a += v[i];
+            a += k;
         }
         DataType::VLFInteger(a)
     }
@@ -70,12 +71,12 @@ impl DataType {
                     s += &format!("\n{}\"{}\": {},",
                                   "\t".repeat(indent+1),
                                   keys[i],
-                                  a[&keys[i]].pretty_print(indent+1));
+                                  a[keys[i]].pretty_print(indent+1));
                 }
                 s += &format!("\n{}\"{}\": {}",
                               "\t".repeat(indent+1),
                               keys[keys.len()-1],
-                              a[&keys[keys.len()-1]].pretty_print(indent+1));
+                              a[keys[keys.len()-1]].pretty_print(indent+1));
                 s += &("\n".to_owned() + &"\t".repeat(indent) + "}");
                 s
             }

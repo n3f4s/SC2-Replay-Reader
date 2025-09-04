@@ -35,7 +35,7 @@ impl CryptTable {
     pub fn decrypt(&self, buffer: &[u64], key: u64) -> Vec<u64> {
 
         let mut res = vec![0; buffer.len()];
-        let mut len = buffer.len();
+        let len = buffer.len();
 
         let mut seed1: u128 = key as u128;
         let mut seed2: u128 = 0xEEEEEEEE;
@@ -46,7 +46,7 @@ impl CryptTable {
             seed2 &= mask;
 
             let mut val = *d as u128;
-            val = val ^ (seed1 + seed2);
+            val ^= seed1 + seed2;
             val &= mask;
 
             seed1 = ((!seed1 << 0x15) + 0x11111111) | (seed1 >> 0x0B);

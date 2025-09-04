@@ -1,8 +1,5 @@
 
-use std::{ env, fs, convert::TryInto };
-use std::iter::{Map, zip};
 use std::collections::HashMap;
-use std::slice::Iter;
 
 use super::structs::*;
 use crate::utils::*;
@@ -18,7 +15,7 @@ use nom::{
 
 
 pub fn parse_kv(data: &[u8]) -> IResult<&[u8], DataType> {
-    let (data, size) = map(pair(tag([0x05]), take(1 as u8)), compose!(snd, |v: &[u8]| v[0] >> 1))(data)?;
+    let (data, size) = map(pair(tag([0x05]), take(1_u8)), compose!(snd, |v: &[u8]| v[0] >> 1))(data)?;
     fn to_map(a: Vec<(&[u8], DataType)>) -> DataType {
         let mut res = HashMap::new();
         for (k, v) in a {
@@ -43,10 +40,9 @@ pub fn parse_array(data: &[u8]) -> IResult<&[u8], DataType> {
         v
     }
     fn array(e: Vec<Box<DataType>>) -> DataType { DataType::array_object(e) }
-    let res = map(
+    map(
         count(parse_serialized_data, size as usize),
-        |d| pipe!( d => map_box => array ))(data);
-    res
+        |d| pipe!( d => map_box => array ))(data)
 }
 
 pub fn parse_vlf(data: &[u8]) -> IResult<&[u8], DataType> {

@@ -1,5 +1,5 @@
 
-use std::{ fmt, ops };
+use std::{ fmt };
 
 use crate::sc2mpq::structs::{*};
 
@@ -18,12 +18,8 @@ pub struct SC2MPQHeader {
     pub game_version: GameVersion,
     pub game_length: u64,
 
+    #[allow(dead_code)]
     pub raw_kv_header: DataType,
-}
-
-#[derive(Debug)]
-pub enum MPQFormatVersion {
-    Original, BurningCrusade,
 }
 
 #[derive(Debug)]
@@ -155,15 +151,6 @@ impl SC2MPQHeader {
 impl fmt::Display for GameVersion {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}.{}.{}.{}", self.major, self.minor, self.patch, self.build)
-    }
-}
-
-impl fmt::Display for MPQFormatVersion {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            MPQFormatVersion::Original => write!(f, "Original"),
-            MPQFormatVersion::BurningCrusade => write!(f, "Burning Crusade"),
-        }
     }
 }
 

@@ -13,7 +13,6 @@ use nom::{
 
 fn to_u64_le(a: &[u8]) -> u64 {
     let mut fill = 8 - a.len();
-    if fill < 0 { fill = 0 };
     let a = [a, &vec![0; fill]].concat();
     u64::from_le_bytes(a.try_into().expect("Wrong size"))
 }
@@ -32,9 +31,9 @@ pub fn le_u8_as_u64(data: &[u8]) -> IResult<&[u8], u64> {
 pub fn parse_sc2mpq_header(data: &[u8]) -> IResult<&[u8], SC2MPQHeader> {
     let ( data, _        ) = tag([0x4d, 0x50, 0x51, 0x1b])(data)?;
     // FIXME use to_*_as_64
-    let ( data, max_size ) = map(take(4 as u8), to_u64_le)(data)?;
-    let ( data, offset   ) = map(take(4 as u8), to_u64_le)(data)?;
-    let ( data, size     ) = map(take(4 as u8), to_u64_le)(data)?;
+    let ( data, max_size ) = map(take(4_u8), to_u64_le)(data)?;
+    let ( data, offset   ) = map(take(4_u8), to_u64_le)(data)?;
+    let ( data, size     ) = map(take(4_u8), to_u64_le)(data)?;
     let ( data, kv       ) = parse_serialized_data(data)?;
     Ok((data, SC2MPQHeader::new(max_size, offset, size, kv).unwrap()))
 }
