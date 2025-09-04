@@ -23,10 +23,10 @@ fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
 
     // FIXME: it's a test for blocktable reading, read stuff before the blocktable before once test are done
     // let data = jump_to_offset(mpqheader.blocktable_offset as usize, mpq_archive_size, data.len(), &data);
-    let compensated_blocktable_offset = ((mpqheader.blocktable_offset + sc2header.header_offset) as usize - (file_size - data.len()));
+    let compensated_blocktable_offset = (mpqheader.blocktable_offset + sc2header.header_offset) as usize - (file_size - data.len());
     let blocktable_end = compensated_blocktable_offset + mpqheader.blocktable_byte_size() as usize;
 
-    let compensated_hashtable_offset = ((mpqheader.hashtable_offset as usize + sc2header.header_offset as usize) - (file_size - data.len()));
+    let compensated_hashtable_offset = (mpqheader.hashtable_offset as usize + sc2header.header_offset as usize) - (file_size - data.len());
     let hashtable_end = compensated_hashtable_offset + mpqheader.hashtable_byte_size() as usize;
 
     println!("current file size: {}", data.len());

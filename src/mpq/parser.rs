@@ -12,7 +12,7 @@ use nom::{
 };
 
 fn to_u64_le(a: &[u8]) -> u64 {
-    let mut fill = 8 - a.len();
+    let fill = 8 - a.len();
     let a = [a, &vec![0; fill]].concat();
     u64::from_le_bytes(a.try_into().expect("Wrong size"))
 }
@@ -83,24 +83,9 @@ fn parse_blocktable_entry(data: &[u8]) -> IResult<&[u8], BlockTableEntry> {
     Ok((data, BlockTableEntry {
         block_offset: offset,
         block_size: size,
-        file_size: file_size,
-        flags: flags
+        file_size,
+        flags
     }))
-}
-
-pub fn parse_packed_blocktable(data: &[u64]) -> Vec<BlockTableEntry> {
-    let mut res = Vec::new();
-    let mut i = 0;
-    while i < data.len() {
-        res.push(BlockTableEntry {
-            block_offset: (data[i] >> 32) as u32,
-            block_size: (data[i] & ((1 << 32)-1)) as u32,
-            file_size: (data[i+1] >> 32) as u32,
-            flags: (data[i+1] & ((1 << 32)-1)) as u32,
-        });
-        i += 2;
-    }
-    res
 }
 
 pub fn parse_blocktable(data: &[u8], size: usize) -> IResult<&[u8], Vec<BlockTableEntry>> {

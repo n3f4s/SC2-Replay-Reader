@@ -1,7 +1,6 @@
 use std::str::from_utf8;
 
-use encoding::{ all::ISO_8859_1, all::WINDOWS_1252, DecoderTrap, Encoding };
-use num_bigint::{ BigUint, ToBigUint };
+use encoding::{ /*all::ISO_8859_1,*/ all::WINDOWS_1252, DecoderTrap, Encoding };
 
 macro_rules! compose {
     ( $last:expr ) => { $last };
@@ -42,16 +41,6 @@ pub fn decode(data: &[u8]) -> Result<String, ()> { // FIXME improve
     }
 }
 
-pub fn to_u64(vec: &[u8]) -> u64  {
-    let mut i = 0;
-    let mut res = 0;
-    for v in vec.iter().rev() {
-        res += (*v as u64) << i;
-        i += 8
-    }
-    res
-}
-
 pub fn jump_to_offset(offset: usize, max_size: usize, current_size: usize, data: &[u8]) -> &[u8] {
     let current_pos = max_size - current_size;
     let corrected_offset = offset - current_pos;
@@ -83,8 +72,8 @@ pub fn unpack_u64_vec(data: &[u64]) -> Vec<u8> {
     let mask: u64 = (1 << 8) - 1;
     for d in data {
         for i in 0..4 {
-            let mask = mask << 8*i;
-            let v = (d & mask) >> 8*i;
+            let mask = mask << (8*i);
+            let v = (d & mask) >> (8*i);
             res.push(v.try_into().unwrap());
         }
     }
