@@ -41,26 +41,57 @@ pub struct MPQHeader {
 }
 
 pub enum BlockFlag {
+    /// Block is a file, and follows the file data format; otherwise, block is free space or unused. If the block is not a file, all other flags should be cleared, and FileSize should be 0.
     IsFile             = 0x80000000,
+    /// File is stored as a single unit, rather than split into sectors.
     IsUnit             = 0x01000000,
+    /// The file's encryption key is adjusted by the block offset and file size (explained in detail in the File Data section). File must be encrypted.
     AdjustedEncryptKey = 0x00020000,
+    /// File is encrypted.
     IsEncrypted        = 0x00010000,
+    /// File is compressed. File cannot be imploded.
     IsCompressed       = 0x00000200,
-    IsImploded         = 00000100,
+    /// File is imploded. File cannot be compressed.
+    IsImploded         = 0x00000100,
 }
 
+#[allow(dead_code)]
 pub enum HashType {
-    MPQ_hashtable_offset = 0,
-    MPQ_hash_name_A      = 1,
-    MPQ_hash_name_B      = 2,
-    MPQ_hash_file_key    = 3,
+    MPQHashtableOffset = 0,
+    MPQHashNameA       = 1,
+    MPQHashNameB       = 2,
+    MPQHashFileKey     = 3,
 }
 
 pub struct BlockTableEntry {
     pub block_offset: u32,
     pub block_size: u32,
-    pub file_size: u32, // If file is compressed then file_size =/= block_size
+    pub file_size: u32, // If file is compressed then file_size >= block_size
     pub flags: u32,
+}
+
+pub enum FileMissingFlag {
+    Empty   = 0xFFFFFFFF,
+    Deleted = 0xFFFFFFFE,
+}
+
+pub enum FileBlockIndex {
+    FilePresent(u32),
+    FileMissing(FileMissingFlag),
+}
+
+pub struct HashTableEntry {
+    pub filepath_hash_a: u32,
+    pub filepath_hash_b: u32,
+    pub language: u16, // Uses MS LANGID format,
+    pub platform_id: u8,
+    pub file_block_index: FileBlockIndex,
+}
+
+pub enum FileReadError {
+    EncryptionNotImplemented,
+    NotAFile,
+    ZeroSizedFile,
 }
 
 fn extract_number(data: &DataType) -> Option<i64> {
@@ -93,6 +124,10 @@ impl MPQHeader {
     pub fn blocktable_byte_size(&self) -> u64 {
         // An entry is 4 u32
         self.blocktable_entries * 4 * 4
+    }
+    pub fn hashtable_byte_size(&self) -> u64 {
+        // An entry is 16 bytes
+        self.hashtable_entries * 16
     }
 }
 

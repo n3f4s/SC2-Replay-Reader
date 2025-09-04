@@ -107,3 +107,52 @@ pub fn parse_packed_blocktable(data: &[u64]) -> Vec<BlockTableEntry> {
 pub fn parse_blocktable(data: &[u8], size: usize) -> IResult<&[u8], Vec<BlockTableEntry>> {
     count(parse_blocktable_entry, size)(data)
 }
+
+pub fn parse_hashtable_entry(data: &[u8]) -> IResult<&[u8], HashTableEntry> {
+    const EMPTY_FILE: u32 = FileMissingFlag::Empty as u32;
+    const DELETED_FILE: u32 = FileMissingFlag::Deleted as u32;
+
+    let (data, fp_hash_a) = le_u32(data)?;
+    let (data, fp_hash_b) = le_u32(data)?;
+    let (data, langid)    = le_u16(data)?;
+    let (data, platform)  = le_u8(data)?;
+    let (data, _)         = le_u8(data)?; // padding byte
+    let (data, fb_idx)    = le_u32(data)?;
+    Ok((data, HashTableEntry {
+        filepath_hash_a: fp_hash_a,
+        filepath_hash_b: fp_hash_b,
+        language: langid,
+        platform_id: platform,
+        file_block_index: match fb_idx {
+            EMPTY_FILE   => FileBlockIndex::FileMissing(FileMissingFlag::Empty),
+            DELETED_FILE => FileBlockIndex::FileMissing(FileMissingFlag::Deleted),
+            _            => FileBlockIndex::FilePresent(fb_idx),
+        }
+    }))
+}
+
+pub fn parse_hashtable(data: &[u8], size: usize) -> IResult<&[u8], Vec<HashTableEntry>> {
+    count(parse_hashtable_entry, size)(data)
+}
+
+pub fn read_file<'a>(data: &'a [u8], index_compensator: fn(usize) -> usize,
+                     bt_entry: &BlockTableEntry, _ht_entry: &HashTableEntry,
+                     force_decompress: bool) -> Result<Vec<u8>, FileReadError> {
+    if bt_entry.flags & (BlockFlag::IsFile as u32) == 0      { return Err(FileReadError::NotAFile); }
+    if bt_entry.flags & (BlockFlag::IsEncrypted as u32) != 0 { return Err(FileReadError::EncryptionNotImplemented) }
+    if bt_entry.block_size == 0                              { return Err(FileReadError::ZeroSizedFile); }
+    let offset = index_compensator(bt_entry.block_offset as usize);
+    let block = &data[offset..bt_entry.block_size as usize];
+    if bt_entry.flags & (BlockFlag::IsUnit as u32) == 1 {
+        let is_compressed = bt_entry.flags & (BlockFlag::IsCompressed as u32) != 0
+                            && (force_decompress || bt_entry.file_size > bt_entry.block_size);
+        if is_compressed {
+            // FIXME implement decryption
+            Ok(Vec::from(block))
+        } else {
+            Ok(Vec::from(block))
+        }
+    } else {
+        panic!("Not implemented");
+    }
+}
