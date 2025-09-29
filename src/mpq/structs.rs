@@ -49,6 +49,8 @@ pub enum BlockFlag {
     IsCompressed       = 0x00000200,
     /// File is imploded. File cannot be compressed.
     IsImploded         = 0x00000100,
+    /// ???
+    FileSectorCRC      = 0x04000000,
 }
 
 #[allow(dead_code)]
@@ -66,11 +68,13 @@ pub struct BlockTableEntry {
     pub flags: u32,
 }
 
+#[derive(Clone, Copy)]
 pub enum FileMissingFlag {
     Empty   = 0xFFFFFFFF,
     Deleted = 0xFFFFFFFE,
 }
 
+#[derive(Clone, Copy)]
 pub enum FileBlockIndex {
     FilePresent(u32),
     FileMissing(FileMissingFlag),
@@ -88,6 +92,7 @@ pub enum FileReadError {
     EncryptionNotImplemented,
     NotAFile,
     ZeroSizedFile,
+    UnknownCompression,
 }
 
 fn extract_number(data: &DataType) -> Option<i64> {
@@ -179,5 +184,26 @@ impl fmt::Display for MPQHeader {
         write!(f, "\n\t\"blocktable offset\":            {},", self.blocktable_offset)?;
         write!(f, "\n\t\"extended blocktable offset\":   {}", self.extended_blocktable_offset)?;
         write!(f, "\n}}")
+    }
+}
+
+impl std::ops::BitAnd<BlockFlag> for u32 {
+    type Output = Self;
+
+    fn bitand(self, rhs: BlockFlag) -> Self::Output {
+        self & (rhs as u32)
+    }
+}
+impl std::ops::BitOr<BlockFlag> for u32 {
+    type Output = Self;
+
+    fn bitor(self, rhs: BlockFlag) -> Self::Output {
+        self | (rhs as u32)
+    }
+}
+
+impl From<FileMissingFlag> for u32 {
+    fn from(value: FileMissingFlag) -> u32 {
+        value as u32
     }
 }

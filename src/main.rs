@@ -37,8 +37,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
     // let parsed_blocktable = parse_packed_blocktable(&blocktable);
     let unpacked_blocktable = unpack_u64_vec(&blocktable);
     let ( _, parsed_blocktable ) = parse_blocktable(&unpacked_blocktable, mpqheader.blocktable_entries as usize).unwrap();
+    println!("Blocktable:");
     println!("offset\tblock size\tfile size\tflags");
-    for block in parsed_blocktable {
+    for block in &parsed_blocktable {
         println!("{:#x}\t{}\t{}\t{:x}", block.block_offset, block.block_size, block.file_size, block.flags);
     }
 
@@ -48,8 +49,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
     let hashtable = crypttable.decrypt(&pack_u8_vec(encrypted_hashtable), hashtable_key);
     let unpacked_hashtable = unpack_u64_vec(&hashtable);
     let ( _, parsed_hashtable ) = parse_hashtable(&unpacked_hashtable, mpqheader.hashtable_entries as usize).unwrap();
+    println!("Hashtable:");
     println!("Hash A\tHash B\tLocl\tPlat\tBlockIdx");
-    for entry in parsed_hashtable {
+    for entry in &parsed_hashtable {
         println!("{:#x}\t{:#x}\t{:#x}\t{:#x}\t{:#x}\t",
                  entry.filepath_hash_a,
                  entry.filepath_hash_b,
@@ -57,9 +59,26 @@ fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                  entry.platform_id,
                  match entry.file_block_index {
                      FileBlockIndex::FilePresent(i) => i,
-                     FileBlockIndex::FileMissing(i) => i as u32,
+                     FileBlockIndex::FileMissing(i) => i.into(),
                  }
         );
     }
+
+    let index_compensator = |i: usize| { i - mpq_header_size };
+
+    for h_entry in &parsed_hashtable {
+        match h_entry.file_block_index {
+            FileBlockIndex::FileMissing(FileMissingFlag::Empty) => println!("File Missing"),
+            FileBlockIndex::FileMissing(FileMissingFlag::Deleted) => println!("File Deleted"),
+            FileBlockIndex::FilePresent(i) => {
+                let bt_entry = &parsed_blocktable[i as usize];
+                match read_file(data, index_compensator, &mpqheader, &bt_entry, &h_entry, false) {
+                    Err(_) => println!("Error reading the file"),
+                    Ok(file) => println!("\n{:?}\n", file),
+                }
+            }
+        }
+    }
+
     Ok(())
 }
