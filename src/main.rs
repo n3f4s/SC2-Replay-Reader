@@ -4,54 +4,105 @@ extern crate num_bigint;
 mod mpq;
 mod sc2mpq;
 mod utils;
+mod sc2;
 
 use std::{ env, fs };
 
 use mpq::{ parser::*, structs::*, utils::* };
+use sc2mpq::parser::parse_serialized_data;
 use utils::*;
+use sc2::*;
+
+
+fn read_sc2mpq_header(data: &[u8]) -> (&[u8], SC2MPQHeader, usize) {
+    let total_size = data.len();
+    let (data, sc2header) = parse_sc2mpq_header(&data).unwrap();
+    let header_size = total_size - data.len();
+    let data = jump_to_offset(sc2header.header_offset as usize, total_size, data.len(), data);
+    (data, sc2header, header_size)
+}
+
+fn read_mpq_header(data: &[u8]) -> (&[u8], MPQHeader, usize) {
+    let total_size = data.len();
+    let (data, mpqheader) = parse_mpq_header(&data).unwrap();
+    let header_size = total_size - data.len();
+    (data, mpqheader, header_size)
+}
+
+fn read_blocktable(data: &[u8], crypttable: &CryptTable, mpqheader: &MPQHeader) -> Vec<BlockTableEntry> {
+    let blocktable_offset = mpqheader.blocktable_offset as usize;
+    let blocktable_end = blocktable_offset + mpqheader.blocktable_byte_size() as usize;
+
+    let encrypted_blocktable = &data[blocktable_offset..blocktable_end];
+    let blocktable_key = crypttable.hash("(block table)".to_string(), HashType::MPQHashFileKey);
+    let blocktable = crypttable.decrypt(&pack_u8_vec(encrypted_blocktable), blocktable_key);
+
+    let unpacked_blocktable = unpack_u64_vec(&blocktable);
+    let ( _, parsed_blocktable ) = parse_blocktable(&unpacked_blocktable, mpqheader.blocktable_entries as usize).unwrap();
+
+    parsed_blocktable
+}
+
+fn read_hashtable(data: &[u8], crypttable: &CryptTable, mpqheader: &MPQHeader) -> Vec<HashTableEntry> {
+    let hashtable_offset = mpqheader.hashtable_offset as usize;
+    let hashtable_end = hashtable_offset + mpqheader.hashtable_byte_size() as usize;
+
+    let encrypted_hashtable = &data[hashtable_offset..hashtable_end];
+    let hashtable_key = crypttable.hash("(hash table)".to_string(), HashType::MPQHashFileKey);
+    let hashtable = crypttable.decrypt(&pack_u8_vec(encrypted_hashtable), hashtable_key);
+
+    let unpacked_hashtable = unpack_u64_vec(&hashtable);
+    let ( _, parsed_hashtable ) = parse_hashtable(&unpacked_hashtable, mpqheader.hashtable_entries as usize).unwrap();
+
+    parsed_hashtable
+}
+
+fn find_and_read_file(data: &[u8], file: String, hashtable: &Vec<HashTableEntry>,
+                      crypttable: &CryptTable,
+                      blocktable: &Vec<BlockTableEntry>,
+                      mpqheader: &MPQHeader) -> Result<Vec<u8>, String> {
+    let file_ht = find_hash_entry_by_name(file, &hashtable, &crypttable).unwrap();
+    match file_ht.file_block_index {
+        FileBlockIndex::FileMissing(FileMissingFlag::Empty) => Err(String::from("File Missing")),
+        FileBlockIndex::FileMissing(FileMissingFlag::Deleted) => Err(String::from("File Deleted")),
+        FileBlockIndex::FilePresent(i) => {
+            let bt_entry = &blocktable[i as usize];
+            println!("offset : {:#x}", bt_entry.block_offset);
+            match read_file(data, &mpqheader, &bt_entry, &file_ht, false) {
+                Err(FileReadError::EncryptionNotImplemented) => Err(String::from("Encrypted file")),
+                Err(FileReadError::NotAFile) => Err(String::from("Not a file")),
+                Err(FileReadError::ZeroSizedFile) => Err(String::from("File size is null")),
+                Err(FileReadError::UnknownCompression(i)) => Err(format!("Unknown compression format {}", i)),
+                Err(FileReadError::FailedDecompression) => Err(String::from("Failed to decompress the file")),
+                Ok(file) => Ok(file)
+            }
+        }
+    }
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
     let args: Vec<String> = env::args().collect();
     let data: Vec<u8> = fs::read(args[1].clone())?;
-    let file_size = data.len();
-    let (data, sc2header) = parse_sc2mpq_header(&data).unwrap();
+
+    let (data, sc2header, sc2_header_size) = read_sc2mpq_header(&data);
     println!("{}", sc2header);
-    let data = jump_to_offset(sc2header.header_offset as usize, file_size, data.len(), data);
-    // let mpq_archive_size = data.len();
-    let (data, mpqheader) = parse_mpq_header(data).unwrap();
+
+    let (_, mpqheader, mpq_header_size) = read_mpq_header(data);
     println!("{}", mpqheader);
 
-    // FIXME: it's a test for blocktable reading, read stuff before the blocktable before once test are done
-    // let data = jump_to_offset(mpqheader.blocktable_offset as usize, mpq_archive_size, data.len(), &data);
-    let compensated_blocktable_offset = (mpqheader.blocktable_offset + sc2header.header_offset) as usize - (file_size - data.len());
-    let blocktable_end = compensated_blocktable_offset + mpqheader.blocktable_byte_size() as usize;
-
-    let compensated_hashtable_offset = (mpqheader.hashtable_offset as usize + sc2header.header_offset as usize) - (file_size - data.len());
-    let hashtable_end = compensated_hashtable_offset + mpqheader.hashtable_byte_size() as usize;
-
-    println!("current file size: {}", data.len());
-    let encrypted_blocktable = &data[compensated_blocktable_offset..blocktable_end];
     let crypttable = CryptTable::new();
-    let blocktable_key = crypttable.hash("(block table)".to_string(), HashType::MPQHashFileKey);
-    let blocktable = crypttable.decrypt(&pack_u8_vec(encrypted_blocktable), blocktable_key);
-    // let parsed_blocktable = parse_packed_blocktable(&blocktable);
-    let unpacked_blocktable = unpack_u64_vec(&blocktable);
-    let ( _, parsed_blocktable ) = parse_blocktable(&unpacked_blocktable, mpqheader.blocktable_entries as usize).unwrap();
+
+    let blocktable = read_blocktable(data, &crypttable, &mpqheader);
     println!("Blocktable:");
-    println!("offset\tblock size\tfile size\tflags");
-    for block in &parsed_blocktable {
-        println!("{:#x}\t{}\t{}\t{:x}", block.block_offset, block.block_size, block.file_size, block.flags);
+    println!("offset (dec)\tblock size\tfile size\tflags");
+    for block in &blocktable {
+        println!("{:#x} ({})\t{}\t{}\t{:x}", block.block_offset, block.block_offset, block.block_size, block.file_size, block.flags);
     }
 
-    println!("current file size: {}, hashtable start: {}, hashtable end: {}", data.len(), compensated_hashtable_offset, hashtable_end);
-    let encrypted_hashtable = &data[compensated_hashtable_offset..hashtable_end];
-    let hashtable_key = crypttable.hash("(hash table)".to_string(), HashType::MPQHashFileKey);
-    let hashtable = crypttable.decrypt(&pack_u8_vec(encrypted_hashtable), hashtable_key);
-    let unpacked_hashtable = unpack_u64_vec(&hashtable);
-    let ( _, parsed_hashtable ) = parse_hashtable(&unpacked_hashtable, mpqheader.hashtable_entries as usize).unwrap();
+    let hashtable = read_hashtable(data, &crypttable, &mpqheader);
     println!("Hashtable:");
     println!("Hash A\tHash B\tLocl\tPlat\tBlockIdx");
-    for entry in &parsed_hashtable {
+    for entry in &hashtable {
         println!("{:#x}\t{:#x}\t{:#x}\t{:#x}\t{:#x}\t",
                  entry.filepath_hash_a,
                  entry.filepath_hash_b,
@@ -64,21 +115,82 @@ fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
         );
     }
 
-    let index_compensator = |i: usize| { i - mpq_header_size };
-
-    for h_entry in &parsed_hashtable {
-        match h_entry.file_block_index {
-            FileBlockIndex::FileMissing(FileMissingFlag::Empty) => println!("File Missing"),
-            FileBlockIndex::FileMissing(FileMissingFlag::Deleted) => println!("File Deleted"),
-            FileBlockIndex::FilePresent(i) => {
-                let bt_entry = &parsed_blocktable[i as usize];
-                match read_file(data, index_compensator, &mpqheader, &bt_entry, &h_entry, false) {
-                    Err(_) => println!("Error reading the file"),
-                    Ok(file) => println!("\n{:?}\n", file),
-                }
+    let mut file_list = Vec::<String>::new();
+    let file_list_ht = find_hash_entry_by_name("(listfile)".to_string(), &hashtable, &crypttable).unwrap();
+    match file_list_ht.file_block_index {
+        FileBlockIndex::FileMissing(FileMissingFlag::Empty) => println!("File Missing"),
+        FileBlockIndex::FileMissing(FileMissingFlag::Deleted) => println!("File Deleted"),
+        FileBlockIndex::FilePresent(i) => {
+            let bt_entry = &blocktable[i as usize];
+            println!("offset : {:#x}", bt_entry.block_offset);
+            match read_file(data, &mpqheader, &bt_entry, &file_list_ht, false) {
+                Err(FileReadError::EncryptionNotImplemented) => println!("Encrypted file"),
+                Err(FileReadError::NotAFile) => println!("Not a file"),
+                Err(FileReadError::ZeroSizedFile) => println!("File size is null"),
+                Err(FileReadError::UnknownCompression(i)) => println!("Unknown compression format {}", i),
+                Err(FileReadError::FailedDecompression) => println!("Failed to decompress the file"),
+                Ok(file) => {
+                    match decode(&file) {
+                        Ok(f) => {
+                            file_list = f.split("\r\n").map(String::from).collect();
+                            println!("\n{:?}\n", file_list);
+                        },
+                        Err(_) => println!("Failed to decode file"),
+                    }
+                },
             }
         }
     }
+
+    println!("File list : {:?}", file_list);
+    for file in file_list {
+        if ! file.is_empty() {
+            println!("Reading '{}'", file);
+            let file_data = find_and_read_file(data, file, &hashtable,
+                                               &crypttable, &blocktable, &mpqheader).unwrap();
+            let (left_over, (parsed, _)) = sc2::parser::parse_struct(&file_data, 0)?;
+            // let file_ht = find_hash_entry_by_name(file, &hashtable, &crypttable).unwrap();
+            // match file_ht.file_block_index {
+            //     FileBlockIndex::FileMissing(FileMissingFlag::Empty) => println!("File Missing"),
+            //     FileBlockIndex::FileMissing(FileMissingFlag::Deleted) => println!("File Deleted"),
+            //     FileBlockIndex::FilePresent(i) => {
+            //         let bt_entry = &blocktable[i as usize];
+            //         println!("offset : {:#x}", bt_entry.block_offset);
+            //         match read_file(data, &mpqheader, &bt_entry, &file_list_ht, false) {
+            //             Err(FileReadError::EncryptionNotImplemented) => println!("Encrypted file"),
+            //             Err(FileReadError::NotAFile) => println!("Not a file"),
+            //             Err(FileReadError::ZeroSizedFile) => println!("File size is null"),
+            //             Err(FileReadError::UnknownCompression(i)) => println!("Unknown compression format {}", i),
+            //             Err(FileReadError::FailedDecompression) => println!("Failed to decompress the file"),
+            //             Ok(file) => {
+            //                 let (left_over, (parsed, _)) = parser::parse_struct(&file, 0)?;
+            //                 // match decode(&file) {
+            //                 //     Ok(f) => {
+            //                 //         println!("\n{:?}\n", f);
+            //                 //     },
+            //                 //     Err(_) => println!("Failed to decode file"),
+            //                 // }
+            //             }
+            //         }
+            //     }
+            // }
+            println!("");
+        }
+    }
+
+    // for h_entry in &hashtable {
+    //     match h_entry.file_block_index {
+    //         FileBlockIndex::FileMissing(FileMissingFlag::Empty) => println!("File Missing"),
+    //         FileBlockIndex::FileMissing(FileMissingFlag::Deleted) => println!("File Deleted"),
+    //         FileBlockIndex::FilePresent(i) => {
+    //             let bt_entry = &blocktable[i as usize];
+    //             match read_file(data, &mpqheader, &bt_entry, &h_entry, false) {
+    //                 Err(_) => println!("Error reading the file"),
+    //                 Ok(file) => println!("\n{:?}\n", file),
+    //             }
+    //         }
+    //     }
+    // }
 
     Ok(())
 }

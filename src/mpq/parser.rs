@@ -212,3 +212,13 @@ pub fn read_file(data: &[u8],
         Ok(result)
     }
 }
+
+pub fn find_hash_entry_by_name<'a>(name: String,
+                           entries: &'a Vec<HashTableEntry>,
+                           crypttable: &CryptTable) -> Option<&'a HashTableEntry> {
+    let hash_a = crypttable.hash(name.clone(), HashType::MPQHashNameA);
+    let hash_b = crypttable.hash(name.clone(), HashType::MPQHashNameB);
+    println!("Hash A : {} -> {:#x} ({})", name, hash_a, hash_a);
+    println!("Hash B : {} -> {:#x} ({})", name, hash_b, hash_b);
+    entries.iter().find(|e| u64::from(e.filepath_hash_a) == hash_a && u64::from(e.filepath_hash_b) == hash_b)
+}
