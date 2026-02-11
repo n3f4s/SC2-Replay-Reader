@@ -92,7 +92,8 @@ pub enum FileReadError {
     EncryptionNotImplemented,
     NotAFile,
     ZeroSizedFile,
-    UnknownCompression,
+    UnknownCompression(u64),
+    FailedDecompression,
 }
 
 fn extract_number(data: &DataType) -> Option<i64> {

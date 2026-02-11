@@ -1,5 +1,6 @@
 
 use super::structs::*;
+use super::utils::*;
 
 use crate::sc2mpq::parser::*;
 
@@ -13,6 +14,7 @@ use nom::{
 
 use flate2::read::ZlibDecoder;
 use bzip2::read::BzDecoder;
+use bzip2::Decompress;
 use std::io::Read;
 
 fn to_u64_le(a: &[u8]) -> u64 {
@@ -125,8 +127,7 @@ pub fn parse_hashtable(data: &[u8], size: usize) -> IResult<&[u8], Vec<HashTable
 
 
 fn decompress(block: &[u8]) -> Result<Vec<u8>, FileReadError> {
-    println!("Block size: {}, block data: {:?}", block.len(), block);
-    let (mut block, compression_header) = le_u16_as_u64(block).unwrap();
+    let (mut block, compression_header) = le_u8_as_u64(block).unwrap();
     match compression_header {
         0 => Ok(Vec::from(block)), // No compression
         2 => { // zlib
@@ -135,33 +136,41 @@ fn decompress(block: &[u8]) -> Result<Vec<u8>, FileReadError> {
             let _ = z.read_to_end(&mut res).unwrap();
             Ok(res)
         },
-        3 => { // bz2
+        16 => { // bz2
             let mut decompressor = BzDecoder::new(block);
             let mut content: Vec<u8> = Vec::new();
-            let _ = decompressor.read(&mut content).unwrap();
-            Ok(content)
+            match decompressor.read_to_end(&mut content) {
+                Ok(status) => {
+                    Ok(content)
+                },
+                Err(e) => {
+                    println!("error : {:?}", e);
+                    Err(FileReadError::FailedDecompression)
+                }
+            }
         }
-        _ => Err(FileReadError::UnknownCompression)
+        i => Err(FileReadError::UnknownCompression(i))
     }
 }
 
 
-pub fn read_file<F>(data: & [u8], index_compensator: F,
-                        header: &MPQHeader,
-                        bt_entry: &BlockTableEntry, _ht_entry: &HashTableEntry,
-                        force_decompress: bool) -> Result<Vec<u8>, FileReadError> where F: Fn(usize) -> usize{
+pub fn read_file(data: &[u8],
+                 header: &MPQHeader,
+                 bt_entry: &BlockTableEntry, _ht_entry: &HashTableEntry,
+                 force_decompress: bool) -> Result<Vec<u8>, FileReadError> {
     if bt_entry.flags & BlockFlag::IsFile      == 0 { return Err(FileReadError::NotAFile); }
     if bt_entry.flags & BlockFlag::IsEncrypted != 0 { return Err(FileReadError::EncryptionNotImplemented) }
     if bt_entry.block_size == 0                     { return Err(FileReadError::ZeroSizedFile); }
 
-    let offset = index_compensator(bt_entry.block_offset as usize);
+    let offset = bt_entry.block_offset as usize;
     println!("Offset: {}, block size: {}, data size: {}", offset, bt_entry.block_size, data.len());
     let block_end = offset + (bt_entry.block_size as usize);
     let block = &data[offset..block_end];
 
-    if bt_entry.flags & (BlockFlag::IsUnit as u32) == 1 {
+    if bt_entry.flags & (BlockFlag::IsUnit as u32) != 0 {
         let is_compressed = bt_entry.flags & (BlockFlag::IsCompressed as u32) != 0
                             && (force_decompress || bt_entry.file_size > bt_entry.block_size);
+        println!("Unit file, is compressed : {}", is_compressed);
         if is_compressed {
             decompress(block)
         } else {
@@ -169,7 +178,10 @@ pub fn read_file<F>(data: & [u8], index_compensator: F,
         }
     } else {
         let sector_size = 512 << header.sector_size_shift;
-        let mut sector = bt_entry.block_size / sector_size + 1;
+        println!("sector size: 512 << sector_size_shift={} == {}", header.sector_size_shift, sector_size);
+        let sector = ( bt_entry.block_size / sector_size ) + 1;
+        println!("sector: block_size={} / sector_size={} + 1 == {}", bt_entry.block_size, sector_size, sector);
+        let mut sector: usize = sector as usize;
         let crc = if bt_entry.flags & BlockFlag::FileSectorCRC == 1{
             sector += 1;
             true
@@ -179,10 +191,9 @@ pub fn read_file<F>(data: & [u8], index_compensator: F,
         fn test_le_u32(data: &[u8]) -> IResult<&[u8], u32> {
             le_u32(data)
         }
-        println!("[{:08b}, {:08b}, {:08b}, {:08b}]", block[0], block[1], block[2], block[3]);
-        let rev_block: Vec<u8> = block[0..(((sector+1)*4) as usize)].iter().rev().copied().collect::<Vec<u8>>();
-        let (_, positions) = map(count(test_le_u32, sector as usize), Vec::from)(&rev_block).unwrap();
-        println!("Positions: {:?}", positions);
+        let rev_block: Vec<u8> = block[0..((sector+1)*4)].iter().rev().copied().collect::<Vec<u8>>();
+        let (_, positions) = map(count(test_le_u32, sector + 1), Vec::from)(&rev_block).unwrap();
+        println!("Positions: {:?} <-> {:?}", positions, rev_block);
         let mut sector_bytes_left = bt_entry.block_size;
         let range = positions.len() - (if crc { 2 } else { 1 });
         let mut result = Vec::new();

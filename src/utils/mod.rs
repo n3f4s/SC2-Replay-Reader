@@ -1,6 +1,6 @@
 use std::str::from_utf8;
 
-use encoding::{ /*all::ISO_8859_1,*/ all::WINDOWS_1252, DecoderTrap, Encoding };
+use encoding::{ all::ISO_8859_1, all::WINDOWS_1252, DecoderTrap, Encoding };
 
 macro_rules! compose {
     ( $last:expr ) => { $last };
@@ -29,6 +29,23 @@ where
 
 pub fn snd<'a>((_, res): (&[u8], &'a [u8])) -> &'a [u8] {
     res
+}
+
+pub fn decode_utf8(data: &[u8]) -> Result<String, ()> { // FIXME improve
+    match str::from_utf8(&data) {
+        Ok(s) => Ok(s.to_string()),
+        Err(_) => Err(()),
+    }
+}
+
+pub fn decode_iso(data: &[u8]) -> Result<String, ()> { // FIXME improve
+    match ISO_8859_1.decode(data, DecoderTrap::Strict) {
+        Ok(s) => Ok(s.to_string()),
+        Err(_) => match from_utf8(data) {
+            Ok(s) => Ok(s.to_string()),
+            Err(_) => Err(())
+        },
+    }
 }
 
 pub fn decode(data: &[u8]) -> Result<String, ()> { // FIXME improve
