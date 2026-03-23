@@ -6,13 +6,21 @@ mod sc2mpq;
 mod utils;
 mod sc2;
 
-use std::{ env, fs };
+use std::{ env, fs, collections::HashMap };
 
 use mpq::{ parser::*, structs::*, utils::* };
-use sc2mpq::parser::parse_serialized_data;
 use utils::*;
-use sc2::*;
 
+use num_bigint::{ BigInt, BigUint, ToBigInt };
+
+macro_rules! typed_get {
+    ($hash:ident, $idx:expr, $rtype:path, $expr:expr) => {
+        match &**$hash.get(&$idx).unwrap() {
+            $rtype(value) => $expr(value),
+            v => panic!("Expected {} : {:?}", stringify!($rytpe), v),
+        }
+    }
+}
 
 fn read_sc2mpq_header(data: &[u8]) -> (&[u8], SC2MPQHeader, usize) {
     let total_size = data.len();
@@ -141,56 +149,102 @@ fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             }
         }
     }
-
     println!("File list : {:?}", file_list);
-    for file in file_list {
-        if ! file.is_empty() {
-            println!("Reading '{}'", file);
-            let file_data = find_and_read_file(data, file, &hashtable,
-                                               &crypttable, &blocktable, &mpqheader).unwrap();
-            let (left_over, (parsed, _)) = sc2::parser::parse_struct(&file_data, 0)?;
-            // let file_ht = find_hash_entry_by_name(file, &hashtable, &crypttable).unwrap();
-            // match file_ht.file_block_index {
-            //     FileBlockIndex::FileMissing(FileMissingFlag::Empty) => println!("File Missing"),
-            //     FileBlockIndex::FileMissing(FileMissingFlag::Deleted) => println!("File Deleted"),
-            //     FileBlockIndex::FilePresent(i) => {
-            //         let bt_entry = &blocktable[i as usize];
-            //         println!("offset : {:#x}", bt_entry.block_offset);
-            //         match read_file(data, &mpqheader, &bt_entry, &file_list_ht, false) {
-            //             Err(FileReadError::EncryptionNotImplemented) => println!("Encrypted file"),
-            //             Err(FileReadError::NotAFile) => println!("Not a file"),
-            //             Err(FileReadError::ZeroSizedFile) => println!("File size is null"),
-            //             Err(FileReadError::UnknownCompression(i)) => println!("Unknown compression format {}", i),
-            //             Err(FileReadError::FailedDecompression) => println!("Failed to decompress the file"),
-            //             Ok(file) => {
-            //                 let (left_over, (parsed, _)) = parser::parse_struct(&file, 0)?;
-            //                 // match decode(&file) {
-            //                 //     Ok(f) => {
-            //                 //         println!("\n{:?}\n", f);
-            //                 //     },
-            //                 //     Err(_) => println!("Failed to decode file"),
-            //                 // }
-            //             }
-            //         }
-            //     }
-            // }
-            println!("");
-        }
+    let file_data = find_and_read_file(data, String::from("replay.details"), &hashtable,
+                                       &crypttable, &blocktable, &mpqheader).unwrap();
+    let (_left_over, (parsed, _)) = sc2::parser::parse_struct(&file_data, 0).unwrap();
+    // FIXME make a macro
+    println!("{}", parsed);
+    let details = match parsed {
+        sc2::structs::DataType::HashMap(map) => map,
+        _ => panic!("Expected details to be a hashmap"),
+    };
+    let players = match &**details.get(&BigInt::ZERO).unwrap() {
+        sc2::structs::DataType::Array(ary) => ary,
+        _ => panic!("Expected to be an array"),
+    };
+    for player in players {
+        let player = match &**player {
+            sc2::structs::DataType::HashMap(map) => map,
+            _ => panic!("Expected details to be a hashmap"),
+        };
+        let name = typed_get!(player, BigInt::ZERO,
+                              sc2::structs::DataType::Blob,
+                              |b: &Vec<u8>| decode_utf8(b).unwrap());
+        // let name = match &**player.get(&BigInt::ZERO).unwrap() {
+        //     sc2::structs::DataType::VInt(i) => {
+        //         let (_, v) = i.to_bytes_le();
+        //         decode_utf8(&v).unwrap()
+        //     },
+        //     sc2::structs::DataType::Blob(b) => {
+        //         decode_utf8(b).unwrap()
+        //     }
+        //     v => panic!("Expected BigInt or blob, got {:?}", v),
+        // };
+        let race = match &**player.get(&2_u32.to_bigint().unwrap()).unwrap() {
+            sc2::structs::DataType::VInt(i) => {
+                let (_, v) = i.to_bytes_le();
+                decode_utf8(&v).unwrap()
+            },
+            sc2::structs::DataType::Blob(b) => {
+                decode_utf8(b).unwrap()
+            }
+            v => panic!("Expected BigInt or blob, got {:?}", v),
+        };
+        let color: HashMap<u64, BigInt> = match &**player.get(&3.to_bigint().unwrap()).unwrap() {
+            sc2::structs::DataType::HashMap(a) => {
+                a.iter().map(|(k, v)| match &**v {
+                    sc2::structs::DataType::VInt(i) => ( if k > &BigInt::ZERO { k.to_u64_digits().1[0] } else { 0 },
+                                                         i.clone() ),
+                    _ => panic!("Expected VInt"),
+                }).collect()
+            },
+            e => panic!("Expected array, got {}", e)
+        };
+        let control = match &**player.get(&4.to_bigint().unwrap()).unwrap() {
+            sc2::structs::DataType::VInt(i) => i,
+            _ => panic!("Expected VInt"),
+        };
+        let handicap = match &**player.get(&6.to_bigint().unwrap()).unwrap() {
+            sc2::structs::DataType::VInt(i) => i,
+            _ => panic!("Expected VInt"),
+        };
+        let observe = match &**player.get(&7.to_bigint().unwrap()).unwrap() {
+            sc2::structs::DataType::VInt(i) => i,
+            _ => panic!("Expected VInt"),
+        };
+        let result = match &**player.get(&8.to_bigint().unwrap()).unwrap() {
+            sc2::structs::DataType::VInt(i) => i,
+            _ => panic!("Expected VInt"),
+        };
+        println!("{{
+    name: {},
+    race: {},
+    colour: {{ a: {}, r: {}, g: {}, b: {} }},
+    control: {},
+    handicap: {},
+    observe: {},
+    result: {};
+}}",
+                 name,
+                 race,
+                 color[&0], color[&1], color[&2], color[&3],
+                 control,
+                 handicap,
+                 observe,
+                 result,
+        )
     }
-
-    // for h_entry in &hashtable {
-    //     match h_entry.file_block_index {
-    //         FileBlockIndex::FileMissing(FileMissingFlag::Empty) => println!("File Missing"),
-    //         FileBlockIndex::FileMissing(FileMissingFlag::Deleted) => println!("File Deleted"),
-    //         FileBlockIndex::FilePresent(i) => {
-    //             let bt_entry = &blocktable[i as usize];
-    //             match read_file(data, &mpqheader, &bt_entry, &h_entry, false) {
-    //                 Err(_) => println!("Error reading the file"),
-    //                 Ok(file) => println!("\n{:?}\n", file),
-    //             }
-    //         }
+    // println!("{}", parsed);
+    // println!("File list : {:?}", file_list);
+    // for file in file_list {
+    //     if ! file.is_empty() {
+    //         println!("Reading '{}'", file);
+    //         let file_data = find_and_read_file(data, file, &hashtable,
+    //                                            &crypttable, &blocktable, &mpqheader).unwrap();
+    //         let (left_over, parsed) = sc2::parser::parse_struct(&file_data)?;
+    //         println!("");
     //     }
     // }
-
     Ok(())
 }
