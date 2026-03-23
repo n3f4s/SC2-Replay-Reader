@@ -14,7 +14,6 @@ use nom::{
 
 use flate2::read::ZlibDecoder;
 use bzip2::read::BzDecoder;
-use bzip2::Decompress;
 use std::io::Read;
 
 fn to_u64_le(a: &[u8]) -> u64 {
@@ -140,7 +139,7 @@ fn decompress(block: &[u8]) -> Result<Vec<u8>, FileReadError> {
             let mut decompressor = BzDecoder::new(block);
             let mut content: Vec<u8> = Vec::new();
             match decompressor.read_to_end(&mut content) {
-                Ok(status) => {
+                Ok(_status) => {
                     Ok(content)
                 },
                 Err(e) => {

@@ -84,10 +84,10 @@ fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
     let args: Vec<String> = env::args().collect();
     let data: Vec<u8> = fs::read(args[1].clone())?;
 
-    let (data, sc2header, sc2_header_size) = read_sc2mpq_header(&data);
+    let (data, sc2header, _sc2_header_size) = read_sc2mpq_header(&data);
     println!("{}", sc2header);
 
-    let (_, mpqheader, mpq_header_size) = read_mpq_header(data);
+    let (_, mpqheader, _mpq_header_size) = read_mpq_header(data);
     println!("{}", mpqheader);
 
     let crypttable = CryptTable::new();

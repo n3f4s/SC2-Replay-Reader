@@ -1,7 +1,8 @@
 use num_bigint::{ BigInt, BigUint };
 use std::collections::HashMap;
+use std::fmt;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum DataType {
     Array(Vec<Box<DataType>>),
     VInt(BigInt),
@@ -14,31 +15,38 @@ pub enum DataType {
 }
 
 impl DataType {
-    fn pretty_print(&self, level: u64) -> String {
+    fn pretty_print(&self, level: usize) -> String {
         use DataType::*;
         match self { // FIXME handle level
-            UInt8(i)  => format!("{}", i),
-            UInt32(i) => format!("{}", i),
-            UInt64(i) => format!("{}", i),
+            UInt8(i)  => format!("{}_u8", i),
+            UInt32(i) => format!("{}_u32", i),
+            UInt64(i) => format!("{}_u64", i),
             Blob(v) => {
                 let b = BigUint::from_bytes_le(v);
-                format!("{}", b)
+                format!("{}_bytes", b)
             }
-            VInt(v) => format!("{}", v),
+            VInt(v) => format!("{}_vint", v),
             Optional(Some(b)) => format!("Some({})", b.pretty_print(level)),
             Optional(None) => String::from("None"),
             Array(vec) => {
-                let str_ = vec.iter().map(|d| d.pretty_print(level+1) + ",\n").collect::<Vec<String>>().join("");
-                format!("[\n{}]", str_)
+                let str_ = vec.iter().map(|d| "  ".repeat(level) + &d.pretty_print(level+1) + ",\n").collect::<Vec<String>>().join("");
+                format!("[\n{}{}]", str_, "  ".repeat(level))
             },
             HashMap(hash) => {
                 let str_ = hash
                     .iter()
-                    .map(|( k, v )| format!("{}: {},\n",
+                    .map(|( k, v )| format!("{}{}: {},\n",
+                                            "  ".repeat(level+1),
                                             k,
                                             v.pretty_print(level+2))).collect::<Vec<String>>().join("");
-                format!("{{\n{}}}", str_)
+                format!("{{\n{}{}}}", str_, "  ".repeat(if level > 0 { level-1 } else { level }))
             }
         }
+    }
+}
+
+impl fmt::Display for DataType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.pretty_print(0))
     }
 }
