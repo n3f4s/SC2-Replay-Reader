@@ -14,12 +14,67 @@ use utils::*;
 use num_bigint::{ BigInt, BigUint, ToBigInt };
 
 macro_rules! typed_get {
+    ($hash:ident, $idx:literal, $rtype:path, $expr:expr) => {
+        match &**$hash.get(&$idx.to_bigint().unwrap()).unwrap() {
+            $rtype(value) => $expr(value),
+            v => panic!("Expected {} : {:?}", stringify!($rytpe), v),
+        }
+    };
+    ($hash:ident, $idx:literal, $rtype:path) => {
+        match &**$hash.get(&$idx.to_bigint().unwrap()).unwrap() {
+            $rtype(value) => value,
+            v => panic!("Expected {} : {:?}", stringify!($rytpe), v),
+        }
+    };
+    ($hash:ident, $idx:expr, $rtype:path) => {
+        match &**$hash.get(&$idx).unwrap() {
+            $rtype(value) => value,
+            v => panic!("Expected {} : {:?}", stringify!($rytpe), v),
+        }
+    };
     ($hash:ident, $idx:expr, $rtype:path, $expr:expr) => {
         match &**$hash.get(&$idx).unwrap() {
             $rtype(value) => $expr(value),
             v => panic!("Expected {} : {:?}", stringify!($rytpe), v),
         }
+    };
+}
+
+macro_rules! typed_expect {
+    ($val:expr, $rtype:path, $expr:expr) => {
+        match $val {
+            $rtype(value) => $expr(value),
+            v => panic!("Expected {} : {:?}", stringify!($rytpe), v),
+        }
+    };
+    ($val:expr, $rtype:path) => {
+        match $val {
+            $rtype(value) => value,
+            v => panic!("Expected {} : {:?}", stringify!($rytpe), v),
+        }
+    };
+}
+
+fn decode_blob(v: &[u8]) -> String { decode_utf8(v).unwrap() }
+
+fn parse_color_hashmap(a: &HashMap<BigInt, Box<sc2::structs::DataType>>) -> HashMap<u64, BigInt> {
+    fn bigint_to_u64(v: &BigInt) -> u64 {
+        if v > &BigInt::ZERO {
+            v.to_u64_digits().1[0]
+        } else {
+            0
+        }
     }
+    fn map((k, v): (&BigInt, &Box<sc2::structs::DataType>)) -> (u64, BigInt) {
+        typed_expect!(
+            &**v,
+            sc2::structs::DataType::VInt,
+            |i: &BigInt| ( bigint_to_u64(&k), i.clone())
+        )
+    }
+    a.iter().map(map).collect()
+
+
 }
 
 fn read_sc2mpq_header(data: &[u8]) -> (&[u8], SC2MPQHeader, usize) {
@@ -164,59 +219,15 @@ fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
         _ => panic!("Expected to be an array"),
     };
     for player in players {
-        let player = match &**player {
-            sc2::structs::DataType::HashMap(map) => map,
-            _ => panic!("Expected details to be a hashmap"),
-        };
-        let name = typed_get!(player, BigInt::ZERO,
-                              sc2::structs::DataType::Blob,
-                              |b: &Vec<u8>| decode_utf8(b).unwrap());
-        // let name = match &**player.get(&BigInt::ZERO).unwrap() {
-        //     sc2::structs::DataType::VInt(i) => {
-        //         let (_, v) = i.to_bytes_le();
-        //         decode_utf8(&v).unwrap()
-        //     },
-        //     sc2::structs::DataType::Blob(b) => {
-        //         decode_utf8(b).unwrap()
-        //     }
-        //     v => panic!("Expected BigInt or blob, got {:?}", v),
-        // };
-        let race = match &**player.get(&2_u32.to_bigint().unwrap()).unwrap() {
-            sc2::structs::DataType::VInt(i) => {
-                let (_, v) = i.to_bytes_le();
-                decode_utf8(&v).unwrap()
-            },
-            sc2::structs::DataType::Blob(b) => {
-                decode_utf8(b).unwrap()
-            }
-            v => panic!("Expected BigInt or blob, got {:?}", v),
-        };
-        let color: HashMap<u64, BigInt> = match &**player.get(&3.to_bigint().unwrap()).unwrap() {
-            sc2::structs::DataType::HashMap(a) => {
-                a.iter().map(|(k, v)| match &**v {
-                    sc2::structs::DataType::VInt(i) => ( if k > &BigInt::ZERO { k.to_u64_digits().1[0] } else { 0 },
-                                                         i.clone() ),
-                    _ => panic!("Expected VInt"),
-                }).collect()
-            },
-            e => panic!("Expected array, got {}", e)
-        };
-        let control = match &**player.get(&4.to_bigint().unwrap()).unwrap() {
-            sc2::structs::DataType::VInt(i) => i,
-            _ => panic!("Expected VInt"),
-        };
-        let handicap = match &**player.get(&6.to_bigint().unwrap()).unwrap() {
-            sc2::structs::DataType::VInt(i) => i,
-            _ => panic!("Expected VInt"),
-        };
-        let observe = match &**player.get(&7.to_bigint().unwrap()).unwrap() {
-            sc2::structs::DataType::VInt(i) => i,
-            _ => panic!("Expected VInt"),
-        };
-        let result = match &**player.get(&8.to_bigint().unwrap()).unwrap() {
-            sc2::structs::DataType::VInt(i) => i,
-            _ => panic!("Expected VInt"),
-        };
+        let player =   typed_expect!(&**player, sc2::structs::DataType::HashMap);
+        let name =     typed_get!(player, BigInt::ZERO, sc2::structs::DataType::Blob,    decode_blob);
+        let race =     typed_get!(player, 2,            sc2::structs::DataType::Blob,    decode_blob);
+        let color =    typed_get!(player, 3,            sc2::structs::DataType::HashMap, parse_color_hashmap);
+        let control =  typed_get!(player, 4,            sc2::structs::DataType::VInt);
+        let handicap = typed_get!(player, 6,            sc2::structs::DataType::VInt);
+        let observe =  typed_get!(player, 7,            sc2::structs::DataType::VInt);
+        let result =   typed_get!(player, 8,            sc2::structs::DataType::VInt);
+
         println!("{{
     name: {},
     race: {},
@@ -235,16 +246,5 @@ fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                  result,
         )
     }
-    // println!("{}", parsed);
-    // println!("File list : {:?}", file_list);
-    // for file in file_list {
-    //     if ! file.is_empty() {
-    //         println!("Reading '{}'", file);
-    //         let file_data = find_and_read_file(data, file, &hashtable,
-    //                                            &crypttable, &blocktable, &mpqheader).unwrap();
-    //         let (left_over, parsed) = sc2::parser::parse_struct(&file_data)?;
-    //         println!("");
-    //     }
-    // }
     Ok(())
 }
