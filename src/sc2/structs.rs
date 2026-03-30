@@ -1,6 +1,9 @@
 use num_bigint::{ BigInt, BigUint };
+use num_derive::{ FromPrimitive, ToPrimitive };
 use std::collections::HashMap;
 use std::fmt;
+
+use crate::utils::*;
 
 #[derive(Clone, Debug)]
 pub enum DataType {
@@ -12,6 +15,7 @@ pub enum DataType {
     UInt8(u8),
     UInt32(u32),
     UInt64(u64),
+    Str(String),
 }
 
 impl DataType {
@@ -21,6 +25,7 @@ impl DataType {
             UInt8(i)  => format!("{}_u8", i),
             UInt32(i) => format!("{}_u32", i),
             UInt64(i) => format!("{}_u64", i),
+            Str(s) => format!("\"{}\"", s),
             Blob(v) => {
                 let b = BigUint::from_bytes_le(v);
                 format!("{}_bytes", b)
