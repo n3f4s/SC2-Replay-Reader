@@ -70,13 +70,16 @@ pub fn parse_array(data: &[u8], _bit_shift: u64) -> IResult<&[u8], (DataType, u6
     Ok((data, (DataType::Array(res), bit_left)))
 }
 
-fn _parse_bits(data: &[u8], bit_shift: u64, size: u64) -> IResult<&[u8], (DataType, u64)> {
+/// Read unaligned bytes. If the byte doesn't end up on an align byte and there are
+/// left over bits, the bits will be return along with the number of bits left.
+/// bit_shift is the number of bit remaining from the last call to _parse_bits
+/// prev_bits contains the bit_shift left over bits from the last call to _parse_bits
+pub fn _parse_bits(data: &[u8], bit_shift: u64, size: u64, prev_bits: u8) -> IResult<&[u8], (DataType, u64, u8)> {
     let mut size = size;
     let mut res = Vec::new();
     if bit_shift > 0 {
-        let (_, val) = le_u8(data)?;
-        res.push((val << bit_shift) >> bit_shift);
         size -= bit_shift;
+        res.push(prev_bits);
     }
     let mut data = data;
     while size >= 8 {
@@ -86,21 +89,24 @@ fn _parse_bits(data: &[u8], bit_shift: u64, size: u64) -> IResult<&[u8], (DataTy
         size -= 8;
     }
     let bits_left = if size == 0 { 0 } else { 8 - size };
-    if size > 0 {
+    let next_bits = if size > 0 {
         let (_, val) = le_u8(data)?;
         res.push(val >> size);
-    }
-    Ok((data, (DataType::Blob(res), bits_left)))
+        ( val << bits_left ) >> bits_left
+    } else { 0 };
+    Ok((data, (DataType::Blob(res), bits_left, next_bits)))
 }
 
 pub fn parse_bits(data: &[u8], bit_shift: u64) -> IResult<&[u8], (DataType, u64)> {
     let (data, size) = parse_size(data)?;
-    _parse_bits(data, bit_shift, size)
+    let (data, (res, bit_shift, _)) = _parse_bits(data, bit_shift, size, 0)?;
+    Ok((data, (res, bit_shift)))
 }
 
 pub fn parse_blob(data: &[u8], bit_shift: u64) -> IResult<&[u8], (DataType, u64)> {
     let (data, size) = parse_size(data)?;
-    _parse_bits(data, bit_shift, size*8)
+    let (data, (res, bit_shift, _)) = _parse_bits(data, bit_shift, size*8, 0)?;
+    Ok((data, (res, bit_shift)))
 }
 
 pub fn parse_choice(data: &[u8], bit_shift: u64) -> IResult<&[u8], (DataType, u64)> {
@@ -116,7 +122,7 @@ pub fn parse_optional(data: &[u8], bit_shift: u64) -> IResult<&[u8], (DataType, 
     }
 }
 
-pub fn parse_assoc_table(data: &[u8], bit_shift: u64) -> IResult<&[u8], (DataType, u64)> {
+pub fn parse_assoc_table(data: &[u8], _bit_shift: u64) -> IResult<&[u8], (DataType, u64)> {
     let (mut data, size) = parse_size(data)?;
     let mut res = HashMap::new();
     let mut bit_left = 0;
@@ -144,6 +150,30 @@ pub fn parse_u32(data: &[u8], _bit_shift: u64) -> IResult<&[u8], (DataType, u64)
 pub fn parse_u64(data: &[u8], _bit_shift: u64) -> IResult<&[u8], (DataType, u64)> {
     let (data, v) = le_u64(data)?;
     Ok((data, (DataType::UInt64(v), 0)))
+}
+
+pub fn parse_frames(data: &[u8]) -> IResult<&[u8], u64> {
+    let (data, byte) = le_u8(data)?;
+    let time = (byte >> 2) as u64;
+    let additional_bytes = byte & 0x03;
+    let (data, time) = match additional_bytes {
+        0 => (data, time),
+        1 => {
+            let (data, next) = le_u8(data)?;
+            (data, (time << 8) | (next as u64))
+        },
+        2 => {
+            let (data, next) = le_u16(data)?;
+            (data, (time << 16) | (next as u64))
+        },
+        3 => {
+            let (data, next) = le_u16(data)?;
+            let (data, last) = le_u8(data)?;
+            (data, (time << 24) | ((next as u64) << 8) | (last as u64))
+        },
+        _ => panic!("Unexpected value for additional_bytes : {}", additional_bytes),
+    };
+    Ok((data, time))
 }
 
 pub fn parse_struct(data: &[u8], bit_shift: u64) -> IResult<&[u8], (DataType, u64)> {
