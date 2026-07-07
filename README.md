@@ -367,3 +367,117 @@ pub fn decrypt(&self, buffer: &[u64], key: u64) -> Vec<u64> {
 ```
 
 The decryption key is often a hash of a hardcoded string (cf blocktable and hashtable).
+
+
+## Files in the archive
+
+The archive of a SC2 replay contains multiple files. First, it contains a special file name `(listfile)` which is a plain text file containing a list of the file in the archive, separated by `;`, `0x0D`, `0x0A` or a combination of those. The archive also contains those files:
+
+- replay.attributes.events
+- replay.details
+- replay.details.backup
+- replay.game.events
+- replay.gamemetadata.json
+- replay.initData
+- replay.initData.backup
+- replay.load.info
+- replay.message.events
+- replay.resumable.events
+- replay.server.battlelobby
+- replay.smartcam.events
+- replay.sync.events
+- replay.sync.history
+- replay.tracker.events
+
+To find a file, we need to compute the hash of it's path using the method A and the method B. With both those hash, we can get the index of the file in the blocktable entry from the hashtable. From the blocktable we can find the position of the file in the archive.
+
+The different files are encoded differently and require different parsing method.
+
+### replay.details
+
+The `replay.details` file is a key/value table which is encoded in a similar way to the SC2 header.
+
+| Data type                | Description                                               | Format                                                 | Variables                                                                                                                                                                             |
+|--------------------------|-----------------------------------------------------------|--------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Array                    | An array of values                                        | `[ 0x00 | size (vint) | data ]`                      | - `size` the number of entry in the array<br>- `data` the entries in the array encoded using this format                                                                              |
+| Bits                     | A number of N bits                                        | `[ 0x01 | size (vint) | number ]`                    | - `size` the number of bits<br> - `number` the number of size N                                                                                                                       |
+| Blob                     | A number of N bytes                                       | `[ 0x02 | size (vint) | number ]`                    | - `size` the number of bytes<br> - `number` the number of size `N*8` bits                                                                                                             |
+| Struct                   | A structure encoded in this format                        | `[ 0x03 | struct ]`                                   | - `struct` the data encoded using this format                                                                                                                                         |
+| Optional                 | A value that can be absent                                | `[ 0x04 | is present flag (1 bit) | struct ]`        | - `is present flag` a flag indicating if there's a value (`flag == 1`) or not (`flag == 0`)<br>- `struct` the data encoded using this format                                          |
+| Association table        | An association table with variable lenght integer as keys | `[ 0x05 | size (vint) | [key (vint) | struct]... ]` | - `size` the number of entry in the table <br>- `key/struct` the key (a variable length int) and the value encoded using this format in an entry of the table                         |
+| Unsigned 8 bits integer  |                                                           | `[ 0x06 | number (8 bits) ]`                          |                                                                                                                                                                                       |
+| Unsigned 32 bits integer |                                                           | `[ 0x07 | number (32 bits) ]`                         |                                                                                                                                                                                       |
+| Unsigned 64 bits integer |                                                           | `[ 0x08 | number (64 bits) ]`                         |                                                                                                                                                                                       |
+| Variable length integer  | A variable lenght integer                                 | `[ 0x09 | head | tail.... ]`                         | - `head` the first byte of the number, the first bit of this byte indicate the sign of the number<br>- `tail` the other bytes with their first bit indicating if we keep going or not |
+
+The result of the parsing is an association table where the keys are number. We can translate the keys into string identifier to ease the comprehension of the data. Some of the values can also be decoded, typically some blobs represent strings.
+
+Here's the translation table:
+```json
+{
+    "player": {
+        "id": 0,
+        "type": "struct",
+        "content": {
+            "name": { "id": 0, "type": "blob", "content": "string" },
+            "bnet": { "id": 1, "type": "struct", "content": {
+                    "region":     { "id": 0, "type": "vint" },
+                    "program_id": { "id": 1, "type": "uint32" },
+                    "subregion":  { "id": 2, "type": "vint" },
+                    "uid":        { "id": 4, "type": "vint" },
+            },
+            "race": { "id": 2, "type": "blob", "content": "string" },
+            "color": { "id": 3, "type": "struct", "content": {
+                    "a": { "id": 0, "type": "vint"},
+                    "r": { "id": 1, "type": "vint"},
+                    "g": { "id": 2, "type": "vint"},
+                    "b": { "id": 3, "type": "vint"}
+                }
+            },
+            "control": { "id": 4, "type": "vint" },
+            "team": { "id": 4, "type": "vint" },
+            "handicap": { "id": 4, "type": "vint" },
+            "observe": { "id": 4, "type": "vint" },
+            "result": { "id": 4, "type": "vint" },
+        }
+    },
+    "map_name": { "id": 1, "type": "blob", "content": "string" },
+    "difficulty": { "id": 2, "type": "blob", "content": "string" },
+    "thumbnail": { "id": 3, "type": "struct", "content": {
+        "thumbnail": { "id": 0, "type": "blob", "content": "string"
+    },
+    "blizz_map": { "id": 4, "type": "uint8" },
+    "file_time": { "id": 5, "type": "uint8" },
+    "utc_adjustment": { "id": 6, "type": "uint8" },
+    "description": { "id": 7, "type": "blob", "content": "string" },
+    "image_file_path": { "id": 8, "type": "blob", "content": "string" },
+    "map_file_name": { "id": 9, "type": "blob", "content": "string" },
+    "cache_handle": {"id": 10, "type": "optional array", "content": "encoded urls"},
+    "mini_save": { "id": 11, "type": "uint8" },
+    "game_speed": { "id": 12, "type": "uint8" },
+    "default_difficulty": { "id": 13, "type": "uint8" },
+}
+```
+
+The decoding of the urls in `cache_handle` use the following algorithm:
+```
+server = decode the UTF-8 string at the range [4;8[ of the blob and trim the extraneous ' ' and '`x00'
+res = []
+for all bytes of the blob in the range [8; ...]:
+    s = two digit hexadecimal representation of the byte with a leading "0x"
+    append the first byte of s to res
+    if there's a second byte in s
+        append the second byte to res
+    else
+        append 0 to res
+hash = decode res as an UTF-8 string
+type = decode the bytes at the range [0;4[ of the blob as an UTF-8 string
+scheme = "https"
+domain = "classic.blizzard.com"
+if server is "sea"
+    server = "us"
+else if server is "cn"
+    scheme = "http"
+    domain = "battlenet.com.cn"
+decoded_url = "<scheme>://<server>-s2-depot.<domain>/<hash>.<type>"
+```
