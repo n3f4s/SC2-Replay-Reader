@@ -2,7 +2,7 @@
 
 The StarCraft 2 replay format is a modified MoPaQ (MPQ) archive containing few files. The replay format add a custom header on top of the standard MPQ format.
 
-Disclaimer: this document isn't a complete documentation of the MoPaQ format and may not even be exhaustive for the SC2 repay format. It's a summary of the information I've used to write my parser so it only contains information about the MoPaQ format related to SC2's replay file. On top of that, I might have skipped some information about the SC2 replay format that I haven't found useful for either parsing the or exploiting the data in it.
+Disclaimer: this document isn't a complete documentation of the MoPaQ format and may not even be exhaustive for the SC2 replay format. It's a summary of the information I've used to write my parser so it only contains information about the MoPaQ format related to SC2's replay file. On top of that, I might have skipped some information about the SC2 replay format that I haven't found useful for either parsing the or exploiting the data in it.
 
 The layout of a replay can be schematized this way:
 
